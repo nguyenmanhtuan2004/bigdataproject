@@ -86,12 +86,13 @@ async def request_ride(request: RideRequest):
         "lonEnd":request.lonEnd,
         "driver_id":nearest_driver,
     }
-   
+    #Luu websocket
     driver_id_request['driver_id']=nearest_driver
     redis_client.set(f"connect:{request.user_id}",nearest_driver )
     redis_client.set(f"status:{nearest_driver}", "busy") 
     redis_client.set(f"status_customer:{request.user_id}", "have_ride") 
-    print(redis_client.get(f"status:{nearest_driver}"))
+    redis_client.set(f"ride:{nearest_driver}",request.user_id)
+    # print(redis_client.get(f"status:{nearest_driver}"))
     redis_client.set(f"ride_end:{nearest_driver}", json.dumps({"latEnd": request.latEnd, "lonEnd": request.lonEnd}))
     await producer.send("ride_requests", message)  # Gửi JSON string lên Kafka
     print("Đã gửi",message)
@@ -101,6 +102,7 @@ async def request_ride(request: RideRequest):
 async def get_driver(customer_id: str):
     """API cho khách hàng lấy driver_id sau khi đặt xe"""
     driver_id = redis_client.get(f"connect:{customer_id}")
+    #kiểm tra khách hàng đó có chuyến đi chưa
     status_customer = redis_client.get(f"status_customer:{customer_id}")
     if driver_id:
         return {"customer_id": customer_id, "driver_id": driver_id,"status_customer":status_customer}
@@ -156,7 +158,7 @@ async def update_location(data: dict):
     latitude = data.get("latitude")
     longitude = data.get("longitude")
 
-    # Lưu vị trí tài xế vào Redis
+    # Lưu vị trí tài xế vào Redis hỗ trợ tim tài xế gần nhất
     redis_client.set(f"driver:{driver_id}", json.dumps({"latitude": latitude, "longitude": longitude}))
     # Gửi dữ liệu vào Kafka topic "driver_location"
     await producer.send("driver_location", {
@@ -170,17 +172,15 @@ async def update_location(data: dict):
 @app.post("/complete_ride/")
 async def complete_ride(driver_id: str):
     # Kiểm tra tài xế có chuyến đi nào đang hoạt động không
-    ride_info = await redis.get(f"ride:{driver_id}")
+    ride_info = redis_client.get(f"ride:{driver_id}")
     
     if not ride_info:
         return {"message": "Không có chuyến đi nào đang hoạt động!"}
     # Cập nhật trạng thái tài xế
-    await redis_client.set(f"status:{driver_id}", "available") 
+    redis_client.set(f"status:{driver_id}", "available")
+    redis_client.set(f"status_customer:{ride_info}", "no_ride") 
     return {"message": "Chuyến đi đã hoàn thành!"}
-
-
-
-
+# OPEN khi mà tài xế đăng nhập, phục vụ nhận thông báo chuyến đi
 @app.websocket("/ws/{driver_id}")
 async def websocket_endpoint(websocket: WebSocket, driver_id: str):
     await websocket.accept()
@@ -192,6 +192,7 @@ async def websocket_endpoint(websocket: WebSocket, driver_id: str):
         del active_drivers[driver_id]
 
 # Danh sách WebSocket kết nối của khách hàng
+#Open khi mà khách hàng gửi request, phục vụ nhận thông báo vị trí tài xế
 connected_clients = {} 
 @app.websocket("/ws/{customer_id}/{driver_id}")
 async def websocket_endpoint(websocket: WebSocket, customer_id: str, driver_id: str):
