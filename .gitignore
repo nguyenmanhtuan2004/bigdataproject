@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Môi trường ảo
+venv/
+ENV/
+.env
+
+# Firebase credentials
+15_HeThongPhanPhoiLaiXeTaxiTrucTuyen_api/taxidistribute-firebase-adminsdk-*.json
+
+# Docker/Kafka
+# Bỏ qua các file log, dữ liệu, và cấu hình runtime của docker/kafka
+# (giả định các thư mục phổ biến, bạn có thể bổ sung nếu có phát sinh thêm)
+docker-kafka-setup/kafka-logs/
+docker-kafka-setup/zookeeper-logs/
+docker-kafka-setup/*.log
+docker-kafka-setup/*.pid
+docker-kafka-setup/*.data
+docker-kafka-setup/*.db
+
+# Docker compose override
+**/docker-compose.override.yml

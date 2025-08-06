@@ -1,0 +1,6 @@
+firebase-admin
+python-dotenv
+fastapi
+redis
+pydantic
+aiokafka
