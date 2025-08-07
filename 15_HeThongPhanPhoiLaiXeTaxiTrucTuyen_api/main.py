@@ -11,10 +11,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import firebase_admin
 from firebase_admin import auth, firestore
 import time
+from contextlib import asynccontextmanager
+import asyncio
 
 
 from math import sqrt,radians,sin,cos,atan2
-app = FastAPI()
+
 redis_client = redis.StrictRedis(host="localhost", port=6379, db=0, decode_responses=True)
 
 
@@ -23,6 +25,37 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app()
 
 db = firestore.client()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ---- STARTUP ----
+    # 1. Reset Redis & Firestore trạng thái
+    customers_ref = db.collection("customers").stream()
+    for customer in customers_ref:
+        db.collection("customers").document(customer.id).update({"status": "no_ride"})
+        redis_client.set(f"status_customer:{customer.id}", "no_ride")
+
+    drivers_ref = db.collection("drivers").stream()
+    for driver in drivers_ref:
+        db.collection("drivers").document(driver.id).update({"status": "available"})
+        redis_client.set(f"status_driver:{driver.id}", "available") 
+    print("✅ Đã reset trạng thái Redis khi khởi động FastAPI")
+
+    # 2. Kafka producer
+    await init_kafka_producer()
+
+    # 3. Kafka consumer
+    asyncio.create_task(consume_ride_requests())
+    asyncio.create_task(consume_driver_location())
+    print("👂 Listening for ride requests...")
+
+    yield
+
+    # ---- SHUTDOWN ----
+    await producer.stop()
+
+app = FastAPI(lifespan=lifespan)
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
@@ -373,30 +406,3 @@ async def consume_driver_location():
             print(f"Thời gian nhận vị trí thời gian thực là: {elapsed_time:.4f} giây")
     finally:
         await consumer.stop()
-
-@app.on_event("startup")
-async def start_kafka_consumer():
-    asyncio.create_task(consume_ride_requests())
-    asyncio.create_task(consume_driver_location())
-@app.on_event("startup")
-async def startup_event():
-    await init_kafka_producer()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await producer.stop()
-
-@app.on_event("startup")
-def reset_redis_status():
-    # Cập nhật tất cả khách hàng
-    customers_ref = db.collection("customers").stream()
-    for customer in customers_ref:
-        db.collection("customers").document(customer.id).update({"status": "no_ride"})
-        redis_client.set(f"status_customer:{customer.id}", "no_ride")
-
-    # Cập nhật tất cả tài xế
-    drivers_ref = db.collection("drivers").stream()
-    for driver in drivers_ref:
-        db.collection("drivers").document(driver.id).update({"status": "available"})
-        redis_client.set(f"status_driver:{driver.id}", "available") 
-    print("✅ Đã reset trạng thái Redis khi khởi động FastAPI")

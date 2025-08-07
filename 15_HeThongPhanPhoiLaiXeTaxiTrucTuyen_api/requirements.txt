@@ -4,3 +4,4 @@ fastapi
 redis
 pydantic
 aiokafka
+uvicorn
